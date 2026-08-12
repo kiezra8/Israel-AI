@@ -49,12 +49,14 @@ data class ParsedIntent(
 )
 
 enum class ActionType {
+    OPEN_APP,
     SET_ALARM,
-    SET_TIMER,
-    SEND_EMAIL,
-    OPEN_WHATSAPP,
+    MAKE_CALL,
+    SEND_SMS,
+    READ_NOTIFICATIONS,
+    TOGGLE_SETTING,
+    WHATSAPP_REPLY,
+    DEVICE_STATUS,
     WEB_SEARCH,
-    DEVICE_REPORT,
-    SCHEDULE_APPOINTMENT,
     GENERAL_CHAT
 }

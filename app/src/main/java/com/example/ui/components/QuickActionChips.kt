@@ -13,11 +13,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Alarm
-import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Message
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Sms
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -48,12 +51,15 @@ fun QuickActionChips(
     modifier: Modifier = Modifier
 ) {
     val actions = listOf(
-        QuickAction("System Report", "Give me a system status report", Icons.Default.Info, true),
-        QuickAction("Set Alarm 7 AM", "Set alarm for 7 AM", Icons.Default.Alarm),
-        QuickAction("Send Email", "Send email to team with project updates", Icons.Default.Email),
-        QuickAction("Schedule Meeting", "Schedule meeting tomorrow at 2 PM", Icons.Default.CalendarMonth),
-        QuickAction("Open WhatsApp", "Open WhatsApp", Icons.Default.Message),
-        QuickAction("Search Google", "Search for latest Google Pixel news", Icons.Default.Search)
+        QuickAction("Device Status", "Check battery and device status", Icons.Default.Info, true),
+        QuickAction("Open App", "Open YouTube", Icons.Default.Apps),
+        QuickAction("Set Alarm 7 AM", "Set an alarm for 7 AM", Icons.Default.Alarm),
+        QuickAction("Make Call", "Call Mom", Icons.Default.Call),
+        QuickAction("Send SMS", "Send SMS to Mom saying I am home", Icons.Default.Sms),
+        QuickAction("Notifications", "Read my notifications", Icons.Default.Notifications),
+        QuickAction("Flashlight", "Turn on flashlight", Icons.Default.FlashOn),
+        QuickAction("WhatsApp Reply", "Reply on WhatsApp saying got it", Icons.Default.Message),
+        QuickAction("Web Search", "Search Google for latest tech news", Icons.Default.Search)
     )
 
     LazyRow(

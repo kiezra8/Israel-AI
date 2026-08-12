@@ -11,43 +11,43 @@ class GeminiRepository {
     private val systemInstructionText = """
         You are 'Israel', an advanced AI voice assistant inspired by JARVIS from Iron Man.
         Your tone is polite, concise, highly intelligent, crisp, and professional.
-        You assist the user with controlling their device, setting alarms, sending emails, scheduling appointments, performing system checks, searching the web, and opening WhatsApp.
-        
+        You control the user's Pixel device using native tools.
+
         CRITICAL OUTPUT FORMATTING RULE:
         You must analyze the user's speech input and return a strict JSON object with this exact structure:
         {
-          "action": "SET_ALARM | SET_TIMER | SEND_EMAIL | OPEN_WHATSAPP | WEB_SEARCH | DEVICE_REPORT | SCHEDULE_APPOINTMENT | GENERAL_CHAT",
+          "action": "OPEN_APP | SET_ALARM | MAKE_CALL | SEND_SMS | READ_NOTIFICATIONS | TOGGLE_SETTING | WHATSAPP_REPLY | DEVICE_STATUS | WEB_SEARCH | GENERAL_CHAT",
           "spokenResponse": "Crisp JARVIS-style spoken response (max 25 words).",
           "params": {
+             "appName": "YouTube",
              "hour": "7",
              "minute": "30",
-             "recipient": "email@example.com or contact name",
-             "subject": "Meeting Notes",
-             "body": "Here is the summary...",
-             "phone": "+123456789",
-             "message": "Hello...",
-             "query": "search keywords",
-             "title": "Dentist appointment",
-             "time": "tomorrow 3pm",
-             "seconds": "300"
+             "contact": "John",
+             "message": "I am on my way",
+             "setting": "flashlight",
+             "enable": "true",
+             "query": "quantum computing advances"
           }
         }
-        
+
         Examples:
-        - "Set an alarm for 6 30 AM for morning jog" -> action: SET_ALARM, params: {"hour": "6", "minute": "30", "label": "Morning jog"}
-        - "Send email to Sarah saying project is ready" -> action: SEND_EMAIL, params: {"recipient": "Sarah", "subject": "Project Status", "body": "The project is ready, Sir."}
-        - "Open WhatsApp and tell Alex I am on my way" -> action: OPEN_WHATSAPP, params: {"contact": "Alex", "message": "I am on my way."}
-        - "Give me a system status report" -> action: DEVICE_REPORT, params: {}
-        - "Search for quantum computing advancements" -> action: WEB_SEARCH, params: {"query": "quantum computing advancements"}
-        - "Schedule a meeting with David tomorrow at 2 PM" -> action: SCHEDULE_APPOINTMENT, params: {"title": "Meeting with David", "time": "tomorrow 2 PM"}
-        - "How far is the moon?" -> action: GENERAL_CHAT, params: {}
+        - "Open YouTube" -> action: OPEN_APP, params: {"appName": "YouTube"}
+        - "Set an alarm for 6:30 AM" -> action: SET_ALARM, params: {"hour": "6", "minute": "30", "label": "Alarm"}
+        - "Call Sarah" -> action: MAKE_CALL, params: {"contact": "Sarah"}
+        - "Send SMS to Mom saying I will be home soon" -> action: SEND_SMS, params: {"contact": "Mom", "message": "I will be home soon"}
+        - "Read my notifications" -> action: READ_NOTIFICATIONS, params: {}
+        - "Turn on flashlight" -> action: TOGGLE_SETTING, params: {"setting": "flashlight", "enable": "true"}
+        - "Reply on WhatsApp saying got it" -> action: WHATSAPP_REPLY, params: {"message": "got it"}
+        - "Check battery and device status" -> action: DEVICE_STATUS, params: {}
+        - "Search Google for latest tech news" -> action: WEB_SEARCH, params: {"query": "latest tech news"}
+        - "Who was Albert Einstein?" -> action: GENERAL_CHAT, params: {}
     """.trimIndent()
 
     suspend fun parseVoiceCommand(userInput: String): ParsedIntent = withContext(Dispatchers.IO) {
         val apiKey = try { BuildConfig.GEMINI_API_KEY } catch (e: Exception) { "" }
 
         if (apiKey.isBlank() || apiKey == "MY_GEMINI_API_KEY" || apiKey == "null") {
-            Log.w("IsraelAI", "Gemini API key is not set or placeholder. Falling back to local pattern parser.")
+            Log.w("IsraelAI", "Gemini API key is not set. Falling back to local pattern parser.")
             return@withContext parseLocalFallback(userInput)
         }
 
@@ -70,7 +70,6 @@ class GeminiRepository {
                 return@withContext parseLocalFallback(userInput)
             }
 
-            // Extract JSON from markdown response if present
             val cleanedJson = responseText
                 .replace("```json", "")
                 .replace("```", "")
@@ -112,8 +111,16 @@ class GeminiRepository {
         val lower = input.lowercase().trim()
 
         return when {
+            lower.startsWith("open ") || lower.contains("launch ") -> {
+                val appName = lower.replace("open", "").replace("launch", "").replace("app", "").trim()
+                ParsedIntent(
+                    actionType = ActionType.OPEN_APP,
+                    isRecognized = true,
+                    spokenResponse = "Opening $appName, Sir.",
+                    parameters = mapOf("appName" to appName)
+                )
+            }
             lower.contains("alarm") || lower.contains("wake me up") -> {
-                // Extract numbers
                 val numbers = Regex("\\d+").findAll(lower).map { it.value.toInt() }.toList()
                 val hour = if (numbers.isNotEmpty()) numbers[0].toString() else "7"
                 val minute = if (numbers.size > 1) numbers[1].toString() else "0"
@@ -124,43 +131,67 @@ class GeminiRepository {
                     parameters = mapOf("hour" to hour, "minute" to minute, "label" to "Israel Alarm")
                 )
             }
-            lower.contains("timer") -> {
-                val numbers = Regex("\\d+").findAll(lower).map { it.value.toInt() }.toList()
-                val secs = if (numbers.isNotEmpty()) (numbers[0] * 60).toString() else "300"
+            lower.startsWith("call ") || lower.contains("phone call") || lower.contains("dial ") -> {
+                val contact = lower.replace("call", "").replace("dial", "").replace("phone", "").replace("to", "").trim()
                 ParsedIntent(
-                    actionType = ActionType.SET_TIMER,
+                    actionType = ActionType.MAKE_CALL,
                     isRecognized = true,
-                    spokenResponse = "Timer configured and initiated, Sir.",
-                    parameters = mapOf("seconds" to secs, "label" to "Israel Timer")
+                    spokenResponse = "Initiating call to $contact, Sir.",
+                    parameters = mapOf("contact" to contact)
                 )
             }
-            lower.contains("email") || lower.contains("send mail") || lower.contains("mail to") -> {
+            lower.contains("sms") || lower.contains("text message") || lower.contains("send message") -> {
                 val words = lower.split(" ")
-                val recipient = if (words.contains("to")) words.getOrElse(words.indexOf("to") + 1) { "Contact" } else "Contact"
+                val contact = if (words.contains("to")) words.getOrElse(words.indexOf("to") + 1) { "contact" } else "contact"
                 ParsedIntent(
-                    actionType = ActionType.SEND_EMAIL,
+                    actionType = ActionType.SEND_SMS,
                     isRecognized = true,
-                    spokenResponse = "Opening mail client to prepare your email, Sir.",
-                    parameters = mapOf("recipient" to recipient, "subject" to "Note from Israel AI", "body" to input)
+                    spokenResponse = "Preparing SMS to $contact, Sir.",
+                    parameters = mapOf("contact" to contact, "message" to input)
                 )
             }
-            lower.contains("whatsapp") || lower.contains("message") -> {
+            lower.contains("notification") || lower.contains("read messages") || lower.contains("what did i miss") -> {
                 ParsedIntent(
-                    actionType = ActionType.OPEN_WHATSAPP,
+                    actionType = ActionType.READ_NOTIFICATIONS,
                     isRecognized = true,
-                    spokenResponse = "Accessing WhatsApp as requested, Sir.",
-                    parameters = mapOf("message" to input)
-                )
-            }
-            lower.contains("report") || lower.contains("status") || lower.contains("diagnostics") || lower.contains("battery") -> {
-                ParsedIntent(
-                    actionType = ActionType.DEVICE_REPORT,
-                    isRecognized = true,
-                    spokenResponse = "Running full Pixel system diagnostics now, Sir.",
+                    spokenResponse = "Surfacing recent notifications, Sir.",
                     parameters = emptyMap()
                 )
             }
-            lower.contains("search") || lower.contains("google") || lower.contains("look up") || lower.contains("find") -> {
+            lower.contains("flashlight") || lower.contains("torch") || lower.contains("wifi") || lower.contains("bluetooth") || lower.contains("volume") || lower.contains("brightness") -> {
+                val setting = when {
+                    lower.contains("flashlight") || lower.contains("torch") -> "flashlight"
+                    lower.contains("wifi") -> "wifi"
+                    lower.contains("bluetooth") -> "bluetooth"
+                    lower.contains("volume") -> "volume"
+                    else -> "brightness"
+                }
+                val enable = if (lower.contains("off") || lower.contains("disable")) "false" else "true"
+                ParsedIntent(
+                    actionType = ActionType.TOGGLE_SETTING,
+                    isRecognized = true,
+                    spokenResponse = "Adjusting $setting, Sir.",
+                    parameters = mapOf("setting" to setting, "enable" to enable)
+                )
+            }
+            lower.contains("whatsapp") -> {
+                val msg = if (lower.contains("saying")) lower.substringAfter("saying").trim() else ""
+                ParsedIntent(
+                    actionType = ActionType.WHATSAPP_REPLY,
+                    isRecognized = true,
+                    spokenResponse = "Interacting with WhatsApp, Sir.",
+                    parameters = mapOf("message" to msg)
+                )
+            }
+            lower.contains("status") || lower.contains("battery") || lower.contains("diagnostics") || lower.contains("time") -> {
+                ParsedIntent(
+                    actionType = ActionType.DEVICE_STATUS,
+                    isRecognized = true,
+                    spokenResponse = "Retrieving Pixel device status report, Sir.",
+                    parameters = emptyMap()
+                )
+            }
+            lower.contains("search") || lower.contains("google") || lower.contains("look up") -> {
                 val query = lower.replace("search", "").replace("google", "").replace("for", "").trim()
                 ParsedIntent(
                     actionType = ActionType.WEB_SEARCH,
@@ -169,19 +200,11 @@ class GeminiRepository {
                     parameters = mapOf("query" to if (query.isNotBlank()) query else input)
                 )
             }
-            lower.contains("meeting") || lower.contains("appointment") || lower.contains("schedule") || lower.contains("remind") -> {
-                ParsedIntent(
-                    actionType = ActionType.SCHEDULE_APPOINTMENT,
-                    isRecognized = true,
-                    spokenResponse = "Adding appointment to your Israel schedule and calendar, Sir.",
-                    parameters = mapOf("title" to input, "time" to "Today")
-                )
-            }
             else -> {
                 ParsedIntent(
                     actionType = ActionType.GENERAL_CHAT,
                     isRecognized = true,
-                    spokenResponse = "Israel system online. How may I assist you with your Pixel device today, Sir?",
+                    spokenResponse = "At your service, Sir. I am listening.",
                     parameters = emptyMap()
                 )
             }

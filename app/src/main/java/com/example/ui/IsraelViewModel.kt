@@ -5,11 +5,13 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.local.AppDatabase
+import com.example.data.local.ChatMessageEntity
 import com.example.data.local.ReminderEntity
 import com.example.data.remote.ActionType
 import com.example.data.remote.GeminiRepository
 import com.example.data.remote.ParsedIntent
 import com.example.device.PixelDeviceController
+import com.example.service.JarvisForegroundService
 import com.example.voice.IsraelSpeechManager
 import com.example.voice.IsraelSpeechState
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,6 +26,7 @@ class IsraelViewModel(application: Application) : AndroidViewModel(application) 
 
     private val db = AppDatabase.getDatabase(application)
     private val reminderDao = db.reminderDao()
+    private val chatDao = db.chatMessageDao()
     private val geminiRepo = GeminiRepository()
     private val pixelController = PixelDeviceController(application)
 
@@ -34,10 +37,17 @@ class IsraelViewModel(application: Application) : AndroidViewModel(application) 
             initialValue = emptyList()
         )
 
+    val chatHistory: StateFlow<List<ChatMessageEntity>> = chatDao.getAllMessages()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
     private val _userTranscript = MutableStateFlow("")
     val userTranscript: StateFlow<String> = _userTranscript.asStateFlow()
 
-    private val _israelResponse = MutableStateFlow("Israel Protocol initialized. At your service, Sir. Say 'Hey Israel' or tap the core to command.")
+    private val _israelResponse = MutableStateFlow("Israel Protocol initialized. At your service, Sir. Tap the core or say a command.")
     val israelResponse: StateFlow<String> = _israelResponse.asStateFlow()
 
     private val _speechState = MutableStateFlow(IsraelSpeechState.IDLE)
@@ -52,15 +62,19 @@ class IsraelViewModel(application: Application) : AndroidViewModel(application) 
     private val _rate = MutableStateFlow(1.05f)
     val rate: StateFlow<Float> = _rate.asStateFlow()
 
-    private val _wakeWordEnabled = MutableStateFlow(true)
-    val wakeWordEnabled: StateFlow<Boolean> = _wakeWordEnabled.asStateFlow()
-
     private val _isSettingsOpen = MutableStateFlow(false)
     val isSettingsOpen: StateFlow<Boolean> = _isSettingsOpen.asStateFlow()
 
     private var speechManager: IsraelSpeechManager? = null
 
     init {
+        // Start foreground service for reliable background execution
+        try {
+            JarvisForegroundService.startService(application)
+        } catch (e: Exception) {
+            Log.e("IsraelViewModel", "Failed to start foreground service", e)
+        }
+
         speechManager = IsraelSpeechManager(
             context = application,
             onVoiceResult = { text -> processVoiceCommand(text) },
@@ -88,9 +102,6 @@ class IsraelViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    /**
-     * Called when user taps the Arc Reactor or speaks a command
-     */
     fun onReactorClick() {
         if (_speechState.value == IsraelSpeechState.SPEAKING) {
             speechManager?.stopSpeaking()
@@ -101,14 +112,22 @@ class IsraelViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    /**
-     * Core NLP & Command Execution Flow
-     */
     fun processVoiceCommand(userInput: String) {
+        if (userInput.isBlank()) return
+
         _userTranscript.value = userInput
         _speechState.value = IsraelSpeechState.THINKING
 
         viewModelScope.launch {
+            // Store user message in Room DB
+            chatDao.insertMessage(
+                ChatMessageEntity(
+                    sender = "USER",
+                    text = userInput,
+                    timestamp = System.currentTimeMillis()
+                )
+            )
+
             val parsedIntent = geminiRepo.parseVoiceCommand(userInput)
             executeIntentActions(parsedIntent, userInput)
         }
@@ -116,17 +135,20 @@ class IsraelViewModel(application: Application) : AndroidViewModel(application) 
 
     private suspend fun executeIntentActions(parsedIntent: ParsedIntent, rawInput: String) {
         val params = parsedIntent.parameters
-        val pendingCount = reminderDao.getPendingCount()
+        val resultMessage: String
 
         when (parsedIntent.actionType) {
+            ActionType.OPEN_APP -> {
+                val appName = params["appName"] ?: rawInput.replace("open", "").trim()
+                resultMessage = pixelController.openAppByName(appName)
+            }
+
             ActionType.SET_ALARM -> {
                 val hour = params["hour"]?.toIntOrNull() ?: 7
                 val min = params["minute"]?.toIntOrNull() ?: 0
                 val label = params["label"] ?: "Israel Alarm"
+                resultMessage = pixelController.setAlarmAndReminder(hour, min, label)
 
-                pixelController.setAlarm(hour, min, label)
-
-                // Save to Room DB as appointment/alarm record
                 val cal = Calendar.getInstance().apply {
                     set(Calendar.HOUR_OF_DAY, hour)
                     set(Calendar.MINUTE, min)
@@ -135,99 +157,66 @@ class IsraelViewModel(application: Application) : AndroidViewModel(application) 
                 reminderDao.insertReminder(
                     ReminderEntity(
                         title = "Alarm: $label at $hour:${if (min < 10) "0$min" else min}",
-                        description = "Set via voice command",
+                        description = "Scheduled via voice command",
                         timeInMillis = cal.timeInMillis,
                         category = "ALARM"
                     )
                 )
-
-                val reply = "Alarm set for $hour:${if (min < 10) "0$min" else min}, Sir."
-                _israelResponse.value = reply
-                speakText(reply)
             }
 
-            ActionType.SET_TIMER -> {
-                val secs = params["seconds"]?.toIntOrNull() ?: 300
-                pixelController.setTimer(secs)
-
-                val reply = "Timer initiated for ${secs / 60} minutes, Sir."
-                _israelResponse.value = reply
-                speakText(reply)
+            ActionType.MAKE_CALL -> {
+                val contact = params["contact"] ?: rawInput.replace("call", "").trim()
+                resultMessage = pixelController.makePhoneCall(contact)
             }
 
-            ActionType.SEND_EMAIL -> {
-                val recipient = params["recipient"] ?: ""
-                val subject = params["subject"] ?: "Note from Israel AI"
-                val body = params["body"] ?: rawInput
-
-                pixelController.sendEmail(recipient, subject, body)
-
-                reminderDao.insertReminder(
-                    ReminderEntity(
-                        title = "Email to $recipient",
-                        description = body,
-                        timeInMillis = System.currentTimeMillis(),
-                        category = "EMAIL"
-                    )
-                )
-
-                val reply = "Opening email app to send your message to $recipient, Sir."
-                _israelResponse.value = reply
-                speakText(reply)
+            ActionType.SEND_SMS -> {
+                val contact = params["contact"] ?: "Contact"
+                val message = params["message"] ?: rawInput
+                resultMessage = pixelController.sendSms(contact, message)
             }
 
-            ActionType.OPEN_WHATSAPP -> {
-                val phone = params["phone"] ?: ""
+            ActionType.READ_NOTIFICATIONS -> {
+                resultMessage = pixelController.readNotificationsAloud()
+            }
+
+            ActionType.TOGGLE_SETTING -> {
+                val setting = params["setting"] ?: "flashlight"
+                val enable = params["enable"]?.toBooleanStrictOrNull() ?: true
+                resultMessage = pixelController.toggleSystemSettings(setting, enable)
+            }
+
+            ActionType.WHATSAPP_REPLY -> {
                 val msg = params["message"] ?: ""
+                resultMessage = pixelController.readAndRespondWhatsApp(if (msg.isNotBlank()) msg else null)
+            }
 
-                pixelController.openWhatsApp(phone, msg)
-
-                val reply = "Opening WhatsApp, Sir."
-                _israelResponse.value = reply
-                speakText(reply)
+            ActionType.DEVICE_STATUS -> {
+                resultMessage = pixelController.checkDeviceStatus()
             }
 
             ActionType.WEB_SEARCH -> {
                 val query = params["query"] ?: rawInput
-                pixelController.performWebSearch(query)
-
-                val reply = "Searching Google for '$query', Sir."
-                _israelResponse.value = reply
-                speakText(reply)
-            }
-
-            ActionType.DEVICE_REPORT -> {
-                val report = pixelController.getDeviceDiagnosticsReport(pendingCount)
-                _israelResponse.value = report
-                speakText("Pixel diagnostic report complete, Sir. All systems functioning normally.")
-            }
-
-            ActionType.SCHEDULE_APPOINTMENT -> {
-                val title = params["title"] ?: rawInput
-                val startMillis = System.currentTimeMillis() + 3600000L // default 1 hr from now
-
-                pixelController.scheduleCalendarEvent(title, "Scheduled via Israel AI", startMillis)
-
-                reminderDao.insertReminder(
-                    ReminderEntity(
-                        title = title,
-                        description = "Calendar Appointment",
-                        timeInMillis = startMillis,
-                        category = "APPOINTMENT"
-                    )
-                )
-
-                val reply = "Appointment '$title' scheduled on your calendar and agenda, Sir."
-                _israelResponse.value = reply
-                speakText(reply)
+                resultMessage = pixelController.searchWebAndSummarize(query)
             }
 
             ActionType.GENERAL_CHAT -> {
-                val reply = parsedIntent.spokenResponse
-                _israelResponse.value = reply
-                speakText(reply)
+                resultMessage = parsedIntent.spokenResponse
             }
         }
+
+        _israelResponse.value = resultMessage
+
+        // Save assistant response in Room DB
+        chatDao.insertMessage(
+            ChatMessageEntity(
+                sender = "ISRAEL",
+                text = resultMessage,
+                timestamp = System.currentTimeMillis(),
+                actionType = parsedIntent.actionType.name
+            )
+        )
+
+        speakText(resultMessage)
     }
 
     fun speakText(text: String) {
@@ -256,6 +245,12 @@ class IsraelViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    fun clearChatHistory() {
+        viewModelScope.launch {
+            chatDao.clearAllMessages()
+        }
+    }
+
     fun updatePitch(newPitch: Float) {
         _pitch.value = newPitch
         speechManager?.speechPitch = newPitch
@@ -264,10 +259,6 @@ class IsraelViewModel(application: Application) : AndroidViewModel(application) 
     fun updateRate(newRate: Float) {
         _rate.value = newRate
         speechManager?.speechRate = newRate
-    }
-
-    fun toggleWakeWord(enabled: Boolean) {
-        _wakeWordEnabled.value = enabled
     }
 
     fun openSettings() { _isSettingsOpen.value = true }

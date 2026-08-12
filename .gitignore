@@ -14,5 +14,12 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Secrets, Environment Files & Keys
 .env
+.env.*
+*.env
+secrets.properties
+*.jks
+*.keystore
 debug.keystore

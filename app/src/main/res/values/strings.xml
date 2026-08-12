@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Israel AI</string>
+    <string name="accessibility_service_description">Israel AI Accessibility Service allows voice commands to read WhatsApp messages and type automated replies upon request.</string>
+    <string name="notification_listener_description">Israel AI Notification Service reads incoming app notifications aloud upon voice command.</string>
 </resources>
