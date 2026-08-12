@@ -1,0 +1,6 @@
+{
+  "name": "Israel Voice Assistant",
+  "description": "Jarvis-inspired AI Voice Assistant powered by Gemini API to set alarms, calendar events, send emails, open WhatsApp, and perform device reports.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
